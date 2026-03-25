@@ -275,13 +275,168 @@ python -m streamlit run app.py --server.port 8501
 
 ---
 
+## 🚢 Deployment Guide
+
+### Option 1: Local Deployment
+
+```bash
+# Step 1: Clone and install
+git clone https://github.com/ajayakumarpradhan/retail-sales-forecasting-ai-platform.git
+cd retail-sales-forecasting-ai-platform
+pip install xgboost scikit-learn pandas numpy matplotlib seaborn joblib fastapi uvicorn streamlit
+
+# Step 2: Download Kaggle data & place CSVs in project root
+# https://www.kaggle.com/c/rossmann-store-sales
+
+# Step 3: Train model (skip if model_artifacts/ already exists)
+python Rossmann_Retail_Sales_Prediction.py
+
+# Step 4: Launch API (Terminal 1)
+python -m uvicorn api:app --host 0.0.0.0 --port 8000
+
+# Step 5: Launch Dashboard (Terminal 2)
+python -m streamlit run app.py --server.port 8501
+
+# Access:
+#   API Docs  → http://localhost:8000/docs
+#   Dashboard → http://localhost:8501
+```
+
+---
+
+### Option 2: Docker Deployment
+
+```dockerfile
+# Dockerfile
+FROM python:3.10-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Train model if artifacts don't exist
+RUN if [ ! -d "model_artifacts" ]; then python Rossmann_Retail_Sales_Prediction.py; fi
+
+EXPOSE 8000 8501
+
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port 8000 & streamlit run app.py --server.port 8501 --server.address 0.0.0.0"]
+```
+
+```bash
+# Build and run
+docker build -t rossmann-sales-predictor .
+docker run -p 8000:8000 -p 8501:8501 rossmann-sales-predictor
+```
+
+#### Docker Compose (Multi-Service)
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  api:
+    build: .
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./model_artifacts:/app/model_artifacts
+
+  dashboard:
+    build: .
+    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./model_artifacts:/app/model_artifacts
+    depends_on:
+      - api
+```
+
+```bash
+docker-compose up --build
+```
+
+---
+
+### Option 3: AWS Cloud Deployment
+
+#### Architecture
+
+```
+User → Route 53 (DNS) → ALB (Load Balancer)
+                            ├── ECS/EC2 → FastAPI (api.py)     → Port 8000
+                            └── ECS/EC2 → Streamlit (app.py)   → Port 8501
+                                             ↓
+                                        S3 (Model Artifacts)
+```
+
+#### Step-by-Step
+
+```bash
+# 1. Launch EC2 instance (Ubuntu 22.04, t2.medium recommended)
+ssh -i your-key.pem ubuntu@<EC2-PUBLIC-IP>
+
+# 2. Install dependencies
+sudo apt update && sudo apt install -y python3-pip git
+pip3 install xgboost scikit-learn pandas numpy matplotlib seaborn joblib fastapi uvicorn streamlit
+
+# 3. Clone repo
+git clone https://github.com/ajayakumarpradhan/retail-sales-forecasting-ai-platform.git
+cd retail-sales-forecasting-ai-platform
+
+# 4. Upload data & train model
+python3 Rossmann_Retail_Sales_Prediction.py
+
+# 5. Run API as background service
+nohup python3 -m uvicorn api:app --host 0.0.0.0 --port 8000 &
+
+# 6. Run Dashboard as background service
+nohup python3 -m streamlit run app.py --server.port 8501 --server.address 0.0.0.0 &
+
+# 7. Open EC2 Security Group ports: 8000, 8501
+# Access:
+#   API   → http://<EC2-PUBLIC-IP>:8000/docs
+#   UI    → http://<EC2-PUBLIC-IP>:8501
+```
+
+#### Production Hardening (Optional)
+
+| Step                     | Tool / Service                        |
+|--------------------------|---------------------------------------|
+| Reverse proxy            | Nginx (route `/api` → 8000, `/` → 8501) |
+| SSL/HTTPS                | Let's Encrypt + Certbot              |
+| Process management       | Systemd or Supervisor                |
+| Auto-scaling             | AWS ECS Fargate or Kubernetes (EKS)  |
+| Model storage            | AWS S3 (versioned bucket)            |
+| CI/CD                    | GitHub Actions → build → push → deploy |
+| Monitoring               | CloudWatch + Evidently AI (drift)    |
+| Logging                  | CloudWatch Logs or ELK Stack         |
+
+---
+
+### Option 4: Streamlit Cloud (Quickest)
+
+```bash
+# 1. Push code to GitHub (already done ✅)
+# 2. Go to https://share.streamlit.io
+# 3. Connect your GitHub repo
+# 4. Set main file: app.py
+# 5. Deploy — done in 2 minutes!
+```
+
+> ⚠️ **Note:** Streamlit Cloud supports the dashboard only. For the API, use AWS/GCP/Render.
+
+---
+
 ## 🚀 Future Improvements (Production Roadmap)
 
 - [ ] Add **SHAP explainability** for feature impact storytelling
 - [ ] Implement **Quantile Regression** for confidence intervals
-- [ ] Containerize with **Docker** + Docker Compose
 - [ ] Add **MLflow** experiment tracking
-- [ ] Deploy on **AWS** (EC2 / S3 / Lambda)
 - [ ] Implement **data drift monitoring** with Evidently AI
 - [ ] Add **LLM-powered chatbot** with function calling (OpenAI / Gemini)
 - [ ] Build **lag features** and **rolling window aggregations**
